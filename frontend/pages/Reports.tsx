@@ -11,9 +11,10 @@ import { Rental, Payment } from '../types';
 import { useSortableData } from '../hooks/useSortableData';
 import { useSettings } from '../context/SettingsContext';
 
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+// Type declarations for window-injected libraries from CDNs
+declare const jspdf: any;
+declare const XLSX: any;
+declare const autoTable: any;
 
 const MoneyIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -122,13 +123,13 @@ const Reports: React.FC = () => {
     const { items: sortedRentals, requestSort, sortConfig } = useSortableData<any>(enrichedRentals, { key: 'checkoutDate', direction: 'descending' });
 
     const handleExportPDF = () => {
-        const doc = new jsPDF();
+        const doc = new jspdf.jsPDF();
         const { shopName } = settings;
         doc.setFontSize(18); doc.text(shopName, 14, 15);
         doc.setFontSize(14); doc.text("Rental History Report", 14, 25);
         const tableColumn = ["Customer", "Items", "Checkout", "Return", "Total", "Balance", "Status"];
         const tableRows = sortedRentals.map(r => [r.customerName, r.itemsList, new Date(r.checkoutDate).toLocaleDateString(), r.expectedReturnDate ? new Date(r.expectedReturnDate).toLocaleDateString() : 'Open', r.totalAmount.toFixed(2), r.balance.toFixed(2), r.status]);
-        autoTable(doc, {
+        doc.autoTable({
             head: [tableColumn], body: tableRows, startY: 32, didDrawPage: (data: any) => {
                 const ph = doc.internal.pageSize.getHeight(); doc.setFontSize(9); doc.setTextColor(150); doc.text('Software Solution by althario.com', 105, ph - 10, { align: 'center' });
             }
@@ -161,7 +162,7 @@ const Reports: React.FC = () => {
         if (!customerReportData || !selectedCustomerId) return;
         const customer = customers.find(c => c.id === selectedCustomerId);
         if (!customer) return;
-        const doc = new jsPDF();
+        const doc = new jspdf.jsPDF();
         doc.setFontSize(18); doc.text(settings.shopName, 14, 15);
         doc.setFontSize(16); doc.text(`Full Account Statement: ${customer.name}`, 14, 25);
         doc.setFontSize(11); doc.setTextColor(100); doc.text(`NIC: ${customer.nic} | Phone: ${customer.phone} | Address: ${customer.address}`, 14, 32);
@@ -170,7 +171,7 @@ const Reports: React.FC = () => {
         doc.text(`Lifetime Paid: Rs. ${customerReportData.totalPaid.toFixed(2)}`, 14, 52);
         doc.text(`Current Outstanding: Rs. ${customerReportData.balanceDue.toFixed(2)}`, 14, 59);
         const tableRows = sortedTransactions.map(t => [t.id.substring(0, 8).toUpperCase(), new Date(t.date).toLocaleDateString(), t.items, t.total.toFixed(2), t.paid.toFixed(2), t.balance.toFixed(2), t.status]);
-        autoTable(doc, {
+        doc.autoTable({
             head: [["Invoice", "Date", "Item Details", "Total", "Paid", "Balance", "Status"]], body: tableRows, startY: 70, styles: { cellPadding: 2, fontSize: 9 }, didDrawPage: (data: any) => {
                 const ph = doc.internal.pageSize.getHeight(); doc.setFontSize(9); doc.setTextColor(150); doc.text('Software Solution by althario.com', 105, ph - 10, { align: 'center' });
             }

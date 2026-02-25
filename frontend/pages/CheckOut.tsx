@@ -6,8 +6,10 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { RentedItem, Item, Customer } from '../types';
 import { XIcon } from '../components/icons';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+
+// Type declarations for window-injected libraries from CDNs
+declare const jspdf: any;
+declare const autoTable: any;
 
 const formatWhatsAppMessage = (template: string, data: Record<string, string | number>) => {
     let message = template;
@@ -98,7 +100,7 @@ const CheckOut: React.FC = () => {
     };
 
     const generateCheckoutInvoicePDF = (rental: any, customer: Customer) => {
-        const doc = new jsPDF();
+        const doc = new jspdf.jsPDF();
         const { shopName, logoUrl, invoiceCustomText } = settings;
         if (logoUrl) {
             try {
@@ -118,7 +120,7 @@ const CheckOut: React.FC = () => {
             const item = items.find(i => i.id === si.itemId);
             return [item?.name || 'Unknown', item?.model || 'N/A', si.quantity, `Rs. ${si.pricePerDay.toFixed(2)}`, `Rs. ${(si.pricePerDay * si.quantity).toFixed(2)}`];
         });
-        autoTable(doc, { head: [tableColumn], body: tableRows, startY: 90, theme: 'grid', headStyles: { fillColor: [51, 65, 85] } });
+        doc.autoTable({ head: [tableColumn], body: tableRows, startY: 90, theme: 'grid', headStyles: { fillColor: [51, 65, 85] } });
         const finalY = (doc as any).lastAutoTable.finalY || 130;
         const expectedTotal = calculateExpectedTotal();
         doc.setFontSize(12); doc.setFont('helvetica', 'bold');

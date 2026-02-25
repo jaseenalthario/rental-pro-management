@@ -6,8 +6,10 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import { Rental, Customer } from '../types';
 import Input from '../components/ui/Input';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+
+// Type declarations for window-injected libraries from CDNs
+declare const jspdf: any;
+declare const autoTable: any;
 
 const formatWhatsAppMessage = (template: string, data: Record<string, string | number>) => {
   let message = template;
@@ -74,7 +76,7 @@ const CheckIn: React.FC = () => {
     returnedItems: { itemId: string; quantity: number; status: 'OK' | 'Damaged' | 'Lost' }[],
     paymentDetails: { fineAmount: number; fineNotes: string; discount: number, paidAmountToday: number }
   ) => {
-    const doc = new jsPDF();
+    const doc = new jspdf.jsPDF();
     const { shopName, logoUrl, invoiceCustomText } = settings;
     if (logoUrl) {
       try {
@@ -92,25 +94,19 @@ const CheckIn: React.FC = () => {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
     doc.text(customer?.name || 'N/A', 14, 58); doc.text(customer?.address || '', 14, 63); doc.text(customer?.phone || '', 14, 68);
 
-    let dynamicBaseTotal = 0;
-
     const tableColumn = ["Item Name & Model", "Quantity Returned", "Status"];
     const tableRows = returnedItems.map(ri => {
       const item = items.find(i => i.id === ri.itemId);
-      const rentedItem = rental.items.find(r => r.itemId === ri.itemId);
-      if (rentedItem) {
-        dynamicBaseTotal += (rentedItem.pricePerDay * ri.quantity) * daysRented;
-      }
       return [`${item?.name || 'Unknown'} (${item?.model || 'N/A'})`, ri.quantity, ri.status];
     });
-    autoTable(doc, { head: [tableColumn], body: tableRows, startY: 75, theme: 'grid', headStyles: { fillColor: [51, 65, 85] } });
+    doc.autoTable({ head: [tableColumn], body: tableRows, startY: 75, theme: 'grid', headStyles: { fillColor: [51, 65, 85] } });
     const finalY = (doc as any).lastAutoTable.finalY || 120;
-    const totalPaidSoFar = rental.paidAmount || rental.advancePayment;
-    const outstandingBalance = (dynamicBaseTotal + (rental.fineAmount || 0) - (rental.discountAmount || 0)) - totalPaidSoFar;
+    const totalPaidSoFar = rental.paidAmount ?? rental.advancePayment ?? 0;
+    const outstandingBalance = (rental.totalAmount + (rental.fineAmount || 0) - (rental.discountAmount || 0)) - totalPaidSoFar;
     const totalPayableToday = outstandingBalance + paymentDetails.fineAmount - paymentDetails.discount;
     const remainingBalance = totalPayableToday - paymentDetails.paidAmountToday;
     const summaryData = [['Outstanding Balance', `Rs. ${outstandingBalance.toFixed(2)}`], ['New Fines / Fees', `+ Rs. ${paymentDetails.fineAmount.toFixed(2)}`], ['Discount Applied', `- Rs. ${paymentDetails.discount.toFixed(2)}`], ['Payment Received', `- Rs. ${paymentDetails.paidAmountToday.toFixed(2)}`],];
-    autoTable(doc, { body: summaryData, startY: finalY + 10, theme: 'plain', tableWidth: 80, margin: { left: 110 }, styles: { fontSize: 11, cellPadding: 2 }, columnStyles: { 1: { halign: 'right' } } });
+    doc.autoTable({ body: summaryData, startY: finalY + 10, theme: 'plain', tableWidth: 80, margin: { left: 110 }, styles: { fontSize: 11, cellPadding: 2 }, columnStyles: { 1: { halign: 'right' } } });
     const summaryY = (doc as any).lastAutoTable.finalY;
     doc.setLineWidth(0.2); doc.line(110, summaryY + 2, 190, summaryY + 2);
     doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.text('Remaining Balance', 110, summaryY + 10);
@@ -126,17 +122,24 @@ const CheckIn: React.FC = () => {
     if (selectedRental && Object.keys(itemsToReturn).length > 0) {
       const paymentValue = paymentAmount === '' ? 0 : parseFloat(paymentAmount) || 0;
 
-      const daysRented = Math.max(1, Math.ceil(Math.abs(new Date().setHours(0, 0, 0, 0) - new Date(selectedRental.checkoutDate).setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24)));
-      let dynamicBaseTotal = 0;
-      Object.entries(itemsToReturn).forEach(([itemId, returnInfo]: [string, any]) => {
-        const rentedItem = selectedRental.items.find(ri => ri.itemId === itemId);
-        if (rentedItem && returnInfo.quantity > 0) {
-          dynamicBaseTotal += (rentedItem.pricePerDay * returnInfo.quantity) * daysRented;
-        }
-      });
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const checkoutDate = new Date(selectedRental.checkoutDate);
+      checkoutDate.setHours(0, 0, 0, 0);
+      const expectedDate = new Date(selectedRental.expectedReturnDate);
+      expectedDate.setHours(0, 0, 0, 0);
 
-      const totalPaidSoFar = selectedRental.paidAmount || selectedRental.advancePayment;
-      const outstandingBalance = (dynamicBaseTotal + (selectedRental.fineAmount || 0) - (selectedRental.discountAmount || 0)) - totalPaidSoFar;
+      const expectedDiff = Math.abs(expectedDate.getTime() - checkoutDate.getTime());
+      const expectedDays = Math.max(1, Math.ceil(expectedDiff / (1000 * 60 * 60 * 24)));
+      const actualDiff = Math.abs(today.getTime() - checkoutDate.getTime());
+      const actualDays = Math.ceil(actualDiff / (1000 * 60 * 60 * 24));
+
+      const daysToCharge = Math.max(expectedDays, Math.max(1, actualDays));
+      const dailyRate = selectedRental.items.reduce((sum, item) => sum + (item.pricePerDay * item.quantity), 0);
+      const calculatedTotalAmount = dailyRate * daysToCharge;
+
+      const totalPaidSoFar = selectedRental.paidAmount ?? selectedRental.advancePayment ?? 0;
+      const outstandingBalance = (calculatedTotalAmount + (selectedRental.fineAmount || 0) - (selectedRental.discountAmount || 0)) - totalPaidSoFar;
       const totalPayableToday = outstandingBalance + fineAmount - discount;
       const nonPaidAmount = parseFloat(Math.max(0, totalPayableToday).toFixed(2));
 
@@ -163,8 +166,8 @@ const CheckIn: React.FC = () => {
           const item = items.find(i => i.id === returned.itemId);
           return `- ${item?.name || 'Unknown'} (x${returned.quantity}) - Status: ${returned.status}`;
         }).join('\n');
-        const totalPaidSoFar = selectedRental.paidAmount || selectedRental.advancePayment;
-        const outstandingBalance = (dynamicBaseTotal + (selectedRental.fineAmount || 0) - (selectedRental.discountAmount || 0)) - totalPaidSoFar;
+        const totalPaidSoFar = selectedRental.paidAmount ?? selectedRental.advancePayment ?? 0;
+        const outstandingBalance = (calculatedTotalAmount + (selectedRental.fineAmount || 0) - (selectedRental.discountAmount || 0)) - totalPaidSoFar;
         const totalPayableToday = outstandingBalance + fineAmount - discount;
         const remainingBalance = totalPayableToday - paymentValue;
         const messageData = { ShopName: settings.shopName, CustomerName: customer.name, InvoiceID: selectedRental.id.substring(0, 8).toUpperCase(), ItemsList: returnedItemsList, Fines: fineAmount.toFixed(2), Discount: discount.toFixed(2), TotalDueToday: Math.max(0, totalPayableToday).toFixed(2), AmountPaid: paymentValue.toFixed(2), RemainingBalance: Math.max(0, remainingBalance).toFixed(2) };
@@ -212,27 +215,34 @@ const CheckIn: React.FC = () => {
   const renderModalContent = () => {
     if (!selectedRental) return null;
 
-    // Calculate basic days rented info
-    const daysRented = Math.max(1, Math.ceil(Math.abs(new Date().setHours(0, 0, 0, 0) - new Date(selectedRental.checkoutDate).setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24)));
+    // Calculate basic days rented info dynamically rather than just trusting the initial DB value.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkoutDate = new Date(selectedRental.checkoutDate);
+    checkoutDate.setHours(0, 0, 0, 0);
+    const expectedDate = new Date(selectedRental.expectedReturnDate);
+    expectedDate.setHours(0, 0, 0, 0);
 
-    // Dynamic calculation of base total according to strictly checked items
-    let dynamicBaseTotal = 0;
-    Object.entries(itemsToReturn).forEach(([itemId, returnInfo]: [string, any]) => {
-      const rentedItem = selectedRental.items.find(ri => ri.itemId === itemId);
-      if (rentedItem && returnInfo.quantity > 0) {
-        dynamicBaseTotal += (rentedItem.pricePerDay * returnInfo.quantity) * daysRented;
-      }
-    });
+    const expectedDiff = Math.abs(expectedDate.getTime() - checkoutDate.getTime());
+    const expectedDays = Math.max(1, Math.ceil(expectedDiff / (1000 * 60 * 60 * 24)));
+    const actualDiff = Math.abs(today.getTime() - checkoutDate.getTime());
+    const actualDays = Math.ceil(actualDiff / (1000 * 60 * 60 * 24));
 
-    const totalPaidSoFar = selectedRental.paidAmount || selectedRental.advancePayment;
-    const outstandingBalance = (dynamicBaseTotal + (selectedRental.fineAmount || 0) - (selectedRental.discountAmount || 0)) - totalPaidSoFar;
+    // The days billed is whichever is higher, the expected days paid for, or the actual days kept.
+    const daysToCharge = Math.max(expectedDays, Math.max(1, actualDays));
+
+    const dailyRate = selectedRental.items.reduce((sum, item) => sum + (item.pricePerDay * item.quantity), 0);
+    const calculatedTotalAmount = dailyRate * daysToCharge;
+
+    const totalPaidSoFar = selectedRental.paidAmount ?? selectedRental.advancePayment ?? 0;
+    const outstandingBalance = (calculatedTotalAmount + (selectedRental.fineAmount || 0) - (selectedRental.discountAmount || 0)) - totalPaidSoFar;
     const totalPayableToday = outstandingBalance + fineAmount - discount;
     const paymentValue = paymentAmount === '' ? 0 : parseFloat(paymentAmount) || 0;
     return (
       <div className="space-y-6">
         <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg">
           <div><p className="text-sm text-slate-500 dark:text-slate-400">Customer</p><p className="font-semibold text-slate-800 dark:text-white">{customers.find(c => c.id === selectedRental.customerId)?.name}</p></div>
-          <div className="text-right"><p className="text-sm text-slate-500 dark:text-slate-400">Duration</p><p className="font-semibold text-slate-800 dark:text-white">{daysRented} Days</p></div>
+          <div className="text-right"><p className="text-sm text-slate-500 dark:text-slate-400">Duration</p><p className="font-semibold text-slate-800 dark:text-white">{daysToCharge} Days</p></div>
         </div>
         <div>
           <h4 className="font-semibold mb-2">Select items to return:</h4>
@@ -261,7 +271,7 @@ const CheckIn: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4 dark:border-slate-700">
           <Input id="paymentAmount" label="Amount Paying Now (Rs.)" type="number" min="0" placeholder="Enter payment amount" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} />
           <div className="p-4 bg-slate-100 dark:bg-slate-900/50 rounded-lg text-right space-y-1">
-            <p className="text-slate-500 dark:text-slate-400 text-sm">Base Total (Selected Items): Rs. {dynamicBaseTotal.toFixed(2)}</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm">Base Total: Rs. {calculatedTotalAmount.toFixed(2)}</p>
             <p className="text-slate-500 dark:text-slate-400 text-sm">Advance/Paid (-): <span className="text-emerald-600 dark:text-emerald-400">Rs. {totalPaidSoFar.toFixed(2)}</span></p>
             <div className="pt-1 mt-1 border-t border-slate-200 dark:border-slate-700"></div>
             <p className="text-slate-600 dark:text-slate-300">Remaining Base Balance: <span className="font-semibold">Rs. {outstandingBalance.toFixed(2)}</span></p>

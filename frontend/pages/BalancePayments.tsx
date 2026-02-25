@@ -49,6 +49,11 @@ const BalancePayments: React.FC = () => {
 
     const handleSettlePayment = async () => {
         if (paymentModalRental && paymentAmount > 0) {
+            const currentBalance = getBalance(paymentModalRental);
+            if (paymentAmount !== currentBalance) {
+                alert("Please enter the exact full balance amount to settle and remove this record from the list.");
+                return;
+            }
             await addPayment(paymentModalRental.id, paymentAmount);
             showNotification("Payment Successfully Settled");
             handleClosePaymentModal();
