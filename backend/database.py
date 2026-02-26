@@ -11,8 +11,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL:
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    print(f"Using Cloud Database: {DATABASE_URL.split('@')[1]}")
-    engine = create_engine(DATABASE_URL, echo=False)
+    
+    # Safely print without leaking credentials or raising IndexError
+    db_host = DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else "Local/Unknown"
+    print(f"Using Cloud Database: {db_host}")
+    
+    # Pre-ping is necessary on Render/Heroku to avoid "server closed the connection unexpectedly" errors
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, echo=False)
 else:
     import pymysql
     DB_USER = os.getenv("DB_USER", "root")
@@ -37,7 +42,7 @@ else:
 
     create_database_if_not_exists()
     LOCAL_DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    engine = create_engine(LOCAL_DATABASE_URL, echo=False)
+    engine = create_engine(LOCAL_DATABASE_URL, pool_pre_ping=True, echo=False)
 
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
